@@ -1,5 +1,4 @@
-// src/main/main.js
-const { app, BrowserWindow, ipcMain, globalShortcut, clipboard, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, globalShortcut, clipboard, screen, Tray, Menu } = require("electron");
 const path = require("path");
 const { GlobalKeyboardListener } = require("node-global-key-listener");
 const Mic = require("node-microphone");
@@ -13,7 +12,8 @@ let store;
     store = new Store.default();
 })();
 
-let mainWindow;
+let tray = null;
+let settingsWindow = null;
 let overlayWindow;
 let isRecording = false;
 let groq;
@@ -22,23 +22,30 @@ let audioBuffer = [];
 let keyboardListener;
 let isOverlayVisible = false;
 
-function createWindow() {
-    mainWindow = new BrowserWindow({
-        width: 800,
-        height: 600,
+function createSettingsWindow() {
+    settingsWindow = new BrowserWindow({
+        width: 400,
+        height: 280,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,
             preload: path.join(__dirname, "preload.js"),
         },
+        show: false,
+        center: true,
+        frame:false,
+        resizable: false,
+        transparent: true,
+        hasShadow: true,
+        backgroundColor: '#00ffffff',
     });
 
-    const htmlPath = path.join(__dirname, "../renderer/index.html");
-    console.log("Loading HTML from:", htmlPath);
-    mainWindow.loadFile(htmlPath);
+    settingsWindow.loadFile(path.join(__dirname, "../renderer/settings.html"));
 
-    // Open the DevTools.
-    // mainWindow.webContents.openDevTools();
+    settingsWindow.on('close', (event) => {
+        event.preventDefault();
+        settingsWindow.hide();
+    });
 }
 
 function createOverlayWindow() {
@@ -60,33 +67,47 @@ function createOverlayWindow() {
 
     overlayWindow.loadFile(path.join(__dirname, "../renderer/overlay.html"));
     overlayWindow.setIgnoreMouseEvents(true);
-    overlayWindow.setBackgroundColor("#00ffffff"); // Fully transparent
+    overlayWindow.setBackgroundColor("#00ffffff");
     overlayWindow.hide();
-    overlayWindow.setBackgroundColor("#00ffffff"); // Fully transparent
 
     setTimeout(() => {
-        overlayWindow.setBackgroundColor("#00ffffff"); // Fully transparent
-    }, 100); // Wait for 1 second before setting transparent again
+        overlayWindow.setBackgroundColor("#00ffffff");
+    }, 100);
+}
 
-    // Open DevTools for the overlay window
-    // if (process.env.NODE_ENV === 'development') {
-    // overlayWindow.webContents.openDevTools({ mode: "detach" });
-    // }
+function getIconPath(isRecording = false) {
+    const iconName = isRecording ? 'tray-icon-recording' : 'tray-icon';
+    
+    if (process.platform === 'win32') {
+        return path.join(__dirname, `../../assets/${iconName}.ico`);
+    } else if (process.platform === 'darwin') {
+        // return path.join(__dirname, `../../assets/${iconName}.icns`);
+        return path.join(__dirname, `../../assets/${iconName}-16.png`);
+    } else {
+        // For Linux and other platforms, use PNG
+        return path.join(__dirname, `../../assets/${iconName}-16.png`);
+    }
+}
+
+function createTray() {
+    tray = new Tray(getIconPath());
+    const contextMenu = Menu.buildFromTemplate([
+        { label: 'Settings', click: () => { settingsWindow.show(); } },
+        { label: 'Quit', click: () => { app.quit(); } }
+    ]);
+    tray.setToolTip('VoiceClipboard');
+    tray.setContextMenu(contextMenu);
 }
 
 app.whenReady().then(async () => {
-    await import("electron-store"); // Ensure electron-store is loaded before we use it
-    createWindow();
+    await import("electron-store");
+    createSettingsWindow();
     createOverlayWindow();
+    createTray();
     setupGlobalHotkey();
     setupGroqClient();
-
-    app.on("activate", function () {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow();
-    });
 });
 
-// Unregister shortcuts when app is about to quit
 app.on("will-quit", () => {
     globalShortcut.unregisterAll();
 });
@@ -96,10 +117,7 @@ app.on("window-all-closed", function () {
 });
 
 function setupGlobalHotkey() {
-    // Unregister any existing shortcuts
     globalShortcut.unregisterAll();
-
-    // Get the hotkey from store or use default
     const hotkey = store.get("hotkey", "CommandOrControl+Shift+K");
 
     try {
@@ -122,7 +140,6 @@ function setupGroqClient() {
     const apiKey = process.env.GROQ_API_KEY || store.get("apiKey");
     if (!apiKey) {
         console.error("Groq API key not found. Please set it in the .env file or in the settings.");
-        mainWindow.webContents.send("error", "Groq API key not found. Please set it in the settings.");
         return;
     }
     groq = new Groq({ apiKey });
@@ -136,28 +153,24 @@ async function toggleRecording() {
     }
 }
 
-// Modify the existing updateOverlayPosition function
 function updateOverlayPosition() {
     if (isOverlayVisible) {
         const mousePosition = screen.getCursorScreenPoint();
         overlayWindow.setPosition(mousePosition.x + 10, mousePosition.y + 10);
-        // overlayWindow.setPosition(100, 100);
     }
 }
-// Set up an interval to continuously update the overlay position when visible
-// setInterval(updateOverlayPosition, 16); // ~60fps
 
 function startRecording() {
     isRecording = true;
     audioBuffer = [];
     micInstance = new Mic();
     const micStream = micInstance.startRecording();
-    mainWindow.webContents.send("recording-status", true);
     overlayWindow.webContents.send("update-status", "recording");
     overlayWindow.show();
+    tray.setImage(getIconPath(true));
 
     isOverlayVisible = true;
-    const updateInterval = setInterval(updateOverlayPosition, 16); // ~60fps
+    const updateInterval = setInterval(updateOverlayPosition, 16);
 
     micStream.on("data", (data) => {
         audioBuffer.push(data);
@@ -165,7 +178,6 @@ function startRecording() {
 
     micInstance.on("error", (error) => {
         console.error("Error during recording:", error);
-        mainWindow.webContents.send("error", "Error during recording");
         stopRecording();
     });
 
@@ -179,20 +191,18 @@ async function stopRecording() {
     if (micInstance) {
         micInstance.stopRecording();
     }
-    mainWindow.webContents.send("recording-status", false);
     overlayWindow.webContents.send("update-status", "processing");
+    tray.setImage(getIconPath());
 
     try {
         const transcription = await performTranscription();
         if (transcription) {
             clipboard.writeText(transcription);
-            mainWindow.webContents.send("transcription-result", transcription);
             overlayWindow.webContents.send("update-status", "done");
-            setTimeout(() => overlayWindow.hide(), 700); // Hide after 2 seconds
+            setTimeout(() => overlayWindow.hide(), 700);
         }
     } catch (error) {
         console.error("Error during transcription:", error);
-        mainWindow.webContents.send("error", "Error during transcription");
         overlayWindow.webContents.send("update-status", "error");
         setTimeout(() => overlayWindow.hide(), 2000);
     }
@@ -223,10 +233,9 @@ async function performTranscription() {
     }
 }
 
-// IPC handlers
 ipcMain.handle("get-recording-status", () => isRecording);
 ipcMain.handle("get-settings", () => ({
-    apiKey: store.get("apiKey", ""),
+    apiKey: process.env.GROQ_API_KEY || store.get("apiKey", ""),
     hotkey: store.get("hotkey", "Control+Shift+Space"),
 }));
 ipcMain.handle("save-settings", (event, settings) => {
@@ -236,13 +245,17 @@ ipcMain.handle("save-settings", (event, settings) => {
     setupGroqClient();
 });
 
-// Add this new IPC handler
 ipcMain.handle("initialize-app", () => {
     setupGlobalHotkey();
     setupGroqClient();
 });
 
-// Add these new IPC handlers
+ipcMain.handle("close-settings", () => {
+    if (settingsWindow) {
+        settingsWindow.hide();
+    }
+})
+
 ipcMain.handle("toggle-overlay", () => {
     isOverlayVisible = !isOverlayVisible;
     if (isOverlayVisible) {
