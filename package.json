@@ -13,8 +13,6 @@
     "author": "Unclecode",
     "license": "ISC",
     "dependencies": {
-        "clipboard-js": "^0.3.6",
-        "clipboard-polyfill": "^4.1.0",
         "dotenv": "^16.4.5",
         "electron-photon": "^1.1.6",
         "electron-store": "^10.0.0",
@@ -23,6 +21,29 @@
         "node-microphone": "^0.1.6",
         "react": "^18.3.1",
         "react-dom": "^18.3.1"
+    },
+    "build": {
+        "appId": "com.unclecode.voiceclipboard",
+        "mac": {
+            "category": "public.app-category.utilities"
+        },
+        "win": {
+            "target": "nsis"
+        },
+        "files": [
+            "**/*",
+            "!**/node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}",
+            "!**/node_modules/*/{test,__tests__,tests,powered-test,example,examples}",
+            "!**/node_modules/*.d.ts",
+            "!**/node_modules/.bin",
+            "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}",
+            "!.editorconfig",
+            "!**/._*",
+            "!**/{.DS_Store,.git,.hg,.svn,CVS,RCS,SCCS,.gitignore,.gitattributes}",
+            "!**/{__pycache__,thumbs.db,.flowconfig,.idea,.vs,.nyc_output}",
+            "!**/{appveyor.yml,.travis.yml,circle.yml}",
+            "!**/{npm-debug.log,yarn.lock,.yarn-integrity,.yarn-metadata.json}"
+        ]
     },
     "config": {
         "forge": {
@@ -61,6 +82,7 @@
         "babel-loader": "^9.1.3",
         "electron": "^32.0.2",
         "electron-builder": "^25.0.5",
+        "electron-rebuild": "^3.2.9",
         "postcss": "^8.4.45",
         "tailwindcss": "^3.4.10",
         "webpack": "^5.94.0",

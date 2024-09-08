@@ -1,0 +1,1 @@
+cmd_Release/macos_paste_addon.node := c++ -bundle -undefined dynamic_lookup -Wl,-search_paths_first -mmacosx-version-min=10.7 -arch arm64 -L./Release -stdlib=libc++  -o Release/macos_paste_addon.node Release/obj.target/macos_paste_addon/src/addon.o Release/nothing.a -framework AppKit
