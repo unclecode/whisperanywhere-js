@@ -8,7 +8,7 @@ const {
     clipboard,
     screen,
     Tray,
-    Menu,
+    Menu, 
     shell,
 } = require("electron");
 const { spawn } = require('child_process');
@@ -18,6 +18,7 @@ const Mic = require("node-microphone");
 const Groq = require("groq-sdk");
 const fs = require("fs");
 const os = require("os");
+const { execSync } = require('child_process');
 require("dotenv").config();
 
 // Import the macOS paste addon
@@ -325,12 +326,67 @@ function startRecording() {
     }
 }
 
+function findRecCommand() {
+    const platform = process.platform;
+    const commonPaths = [
+        '/usr/bin/rec',
+        '/usr/local/bin/rec',
+        '/opt/homebrew/bin/rec',
+        path.join(process.env.HOME, 'bin', 'rec')
+    ];
+
+    try {
+        if (platform === 'darwin' || platform === 'linux') {
+            // First, try using 'which'
+            try {
+                const recPath = execSync('which rec').toString().trim();
+                log(`Found 'rec' command using which at: ${recPath}`);
+                return recPath;
+            } catch (whichError) {
+                log(`'which rec' failed: ${whichError.message}`, true);
+            }
+
+            // If 'which' fails, check common paths
+            for (const possiblePath of commonPaths) {
+                if (fs.existsSync(possiblePath)) {
+                    log(`Found 'rec' command at common path: ${possiblePath}`);
+                    return possiblePath;
+                }
+            }
+        } else if (platform === 'win32') {
+            // Windows logic (same as before)
+            const possiblePaths = [
+                path.join(process.env.ProgramFiles, 'Sox', 'sox.exe'),
+                path.join(process.env['ProgramFiles(x86)'], 'Sox', 'sox.exe'),
+                path.join(process.env.USERPROFILE, 'Sox', 'sox.exe')
+            ];
+            
+            for (const soxPath of possiblePaths) {
+                if (fs.existsSync(soxPath)) {
+                    log(`Found SOX on Windows at: ${soxPath}`);
+                    return soxPath;
+                }
+            }
+        }
+
+        throw new Error(`SOX not found on ${platform}`);
+    } catch (error) {
+        log(`Error finding recording command: ${error.message}`, true);
+        return null;
+    }
+}
+
 function proceedWithRecording() {
     try {
         log("Initializing Mic instance...");
-        // Modify the Mic constructor to use the full path to 'rec' if needed
-        // You might need to adjust this path based on the 'which rec' output
-        micInstance = new Mic({ recordProgram: '/usr/local/bin/rec' });
+        const recPath = findRecCommand();
+        
+        if (!recPath) {
+            throw new Error("'rec' command not found. Please ensure SOX is installed correctly.");
+        }
+
+        micInstance = new Mic({ recordProgram: recPath });
+
         log("Mic instance created successfully");
 
         log("Starting recording stream...");
