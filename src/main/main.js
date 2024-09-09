@@ -164,6 +164,7 @@ function createTray() {
             label: "Quit",
             click: () => {
                 log("Quit selected from tray");
+                app.exit(0);
                 app.quit();
             },
         },
@@ -293,6 +294,7 @@ async function stopRecording() {
         tray.setImage(getIconPath());
 
         try {
+            overlayWindow.webContents.send("update-status", "processing");
             const transcription = await performTranscription(result.buffer);
             if (transcription) {
                 clipboard.writeText(transcription);
@@ -321,13 +323,35 @@ async function stopRecording() {
 
 async function performTranscription(audioBuffer) {
     if (!groq) {
+        log("Groq client not initialized", true);
         throw new Error("Groq client not initialized");
     }
 
-    const audioFilePath = path.join(app.getPath("temp"), "recorded_audio.wav");
-    fs.writeFileSync(audioFilePath, audioBuffer);
+    if (!audioBuffer || audioBuffer.length === 0) {
+        log("Audio buffer is empty or undefined", true);
+        throw new Error("Invalid audio buffer");
+    }
+
+    const audioFilePath = path.join(app.getPath("temp"), `recorded_audio_${Date.now()}.wav`);
+    log(`Saving audio file to: ${audioFilePath}`);
 
     try {
+        fs.writeFileSync(audioFilePath, audioBuffer);
+        const stats = fs.statSync(audioFilePath);
+        log(`Audio file saved. Size: ${stats.size} bytes`);
+
+        if (stats.size === 0) {
+            log("Saved audio file is empty", true);
+            throw new Error("Empty audio file");
+        }
+
+        const apiKey = process.env.GROQ_API_KEY || store.get("apiKey", "");
+        if (!apiKey) {
+            log("API key is missing", true);
+            throw new Error("API key not found");
+        }
+        log(`Using API key: ${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`);
+
         log("Starting transcription");
         const transcription = await groq.audio.transcriptions.create({
             file: fs.createReadStream(audioFilePath),
@@ -338,10 +362,23 @@ async function performTranscription(audioBuffer) {
         });
 
         fs.unlinkSync(audioFilePath);
-        log("Transcription completed successfully");
+        log(`Transcription completed successfully. Text length: ${transcription.text.length}`);
         return transcription.text;
     } catch (error) {
         log(`Error in Groq API call: ${error.message}`, true);
+        log(`Error stack: ${error.stack}`, true);
+
+        if (error.response) {
+            log(`API Response Status: ${error.response.status}`, true);
+            log(`API Response Data: ${JSON.stringify(error.response.data)}`, true);
+        }
+
+        if (fs.existsSync(audioFilePath)) {
+            log(`Audio file still exists at: ${audioFilePath}`, true);
+        } else {
+            log("Audio file was deleted or not created", true);
+        }
+
         throw error;
     }
 }
