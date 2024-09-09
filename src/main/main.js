@@ -1,25 +1,26 @@
 const {
     app,
     BrowserWindow,
-    systemPreferences,
     dialog,
     ipcMain,
     globalShortcut,
     clipboard,
     screen,
     Tray,
-    Menu, 
+    Menu,
     shell,
 } = require("electron");
-const { spawn } = require('child_process');
 const path = require("path");
-const { GlobalKeyboardListener } = require("node-global-key-listener");
-const Mic = require("node-microphone");
 const Groq = require("groq-sdk");
 const fs = require("fs");
 const os = require("os");
-const { execSync } = require('child_process');
-require("dotenv").config();
+// const Store = require('electron-store');
+
+// Initialize store synchronously
+// const store = new Store();
+
+// Import the macOS audio recording addon
+const audioRecorder = require('../../macos-audio-addon');
 
 // Import the macOS paste addon
 const { pasteText } = require("../../macos-paste-addon");
@@ -49,19 +50,21 @@ function log(message, isError = false) {
 }
 
 let store;
-(async () => {
-    const Store = await import("electron-store");
+// (async () => {
+//     const Store = await import("electron-store");
+//     store = new Store.default();
+// })();
+
+async function initializeStore() {
+    const Store = await import('electron-store');
     store = new Store.default();
-})();
+}
 
 let tray = null;
 let settingsWindow = null;
 let overlayWindow;
 let isRecording = false;
 let groq;
-let micInstance;
-let audioBuffer = [];
-let keyboardListener;
 let isOverlayVisible = false;
 
 function createSettingsWindow() {
@@ -123,14 +126,7 @@ function createOverlayWindow() {
 
 function getIconPath(isRecording = false) {
     const iconName = isRecording ? "tray-icon-recording" : "tray-icon";
-
-    if (process.platform === "win32") {
-        return path.join(__dirname, `../../assets/${iconName}.ico`);
-    } else if (process.platform === "darwin") {
-        return path.join(__dirname, `../../assets/${iconName}-16.png`);
-    } else {
-        return path.join(__dirname, `../../assets/${iconName}-16.png`);
-    }
+    return path.join(__dirname, `../../assets/${iconName}-16.png`);
 }
 
 let forceQuit = false;
@@ -165,24 +161,10 @@ function createTray() {
             },
         },
         {
-            label: "Open Dev Tools",
-            click: () => {
-                if (settingsWindow) {
-                    settingsWindow.webContents.openDevTools();
-                }
-                if (overlayWindow) {
-                    overlayWindow.webContents.openDevTools();
-                }
-                log("Dev tools opened from tray");
-            },
-        },
-        {
             label: "Quit",
             click: () => {
                 log("Quit selected from tray");
-                BrowserWindow.getAllWindows().forEach(window => window.close());
                 app.quit();
-                app.exit(0);
             },
         },
     ]);
@@ -191,36 +173,21 @@ function createTray() {
     log("Tray created");
 }
 
+async function initializeStore() {
+    const Store = await import('electron-store');
+    store = new Store.default();
+}
+
 app.whenReady().then(async () => {
+    await initializeStore();
     setupLogging();
     log("Application starting");
-
-    await checkAudioCommands();
-
-    const recAvailable = await checkRecCommand();
-    if (!recAvailable) {
-        log("WARNING: 'rec' command is not available. SOX might not be installed correctly.", true);
-    }
     
-    if (process.platform === "darwin") {
-        const status = await systemPreferences.getMediaAccessStatus("microphone");
-        if (status !== "granted") {
-            const result = await systemPreferences.askForMediaAccess("microphone");
-            if (!result) {
-                log("Microphone access denied", true);
-                dialog.showErrorBox("Permission Denied", "Microphone access is required for this app to function.");
-            } else {
-                log("Microphone access granted");
-            }
-        }
-    }
-
-    await import("electron-store");
     createSettingsWindow();
     createOverlayWindow();
     createTray();
-    setupGlobalHotkey();
-    setupGroqClient();
+    await setupGlobalHotkey();
+    await setupGroqClient();
     log("Application setup complete");
 });
 
@@ -236,7 +203,10 @@ app.on("window-all-closed", function () {
     }
 });
 
-function setupGlobalHotkey() {
+
+
+async function setupGlobalHotkey() {
+    if (!store) await initializeStore();
     globalShortcut.unregisterAll();
     const hotkey = store.get("hotkey", "CommandOrControl+Shift+K");
 
@@ -256,13 +226,14 @@ function setupGlobalHotkey() {
     }
 }
 
-function setupGroqClient() {
+async function setupGroqClient() {
+    if (!store) await initializeStore();
     const apiKey = process.env.GROQ_API_KEY || store.get("apiKey");
     if (!apiKey) {
         log("Groq API key not found", true);
         return;
     }
-    log(`API Key found: ${apiKey.slice(0, 5)}...${apiKey.slice(-5)}`); // Log a part of the API key for verification
+    log(`API Key found: ${apiKey.slice(0, 5)}...${apiKey.slice(-5)}`);
     groq = new Groq({ apiKey });
     log("Groq client initialized");
 }
@@ -294,105 +265,9 @@ function updateOverlayPosition() {
 
 function startRecording() {
     isRecording = true;
-    audioBuffer = [];
+    log("Starting recording...");
 
-    log("Attempting to start recording...");
-
-    // Check if microphone access is granted
-    if (process.platform === "darwin") {
-        const micStatus = systemPreferences.getMediaAccessStatus('microphone');
-        log(`Microphone access status: ${micStatus}`);
-        if (micStatus !== 'granted') {
-            log("Microphone access not granted. Requesting access...", true);
-            systemPreferences.askForMediaAccess('microphone')
-                .then(granted => {
-                    if (granted) {
-                        log("Microphone access granted. Proceeding with recording.");
-                        proceedWithRecording();
-                    } else {
-                        log("Microphone access denied by user.", true);
-                        stopRecording('error');
-                    }
-                })
-                .catch(error => {
-                    log(`Error requesting microphone access: ${error.message}`, true);
-                    stopRecording('error');
-                });
-        } else {
-            proceedWithRecording();
-        }
-    } else {
-        proceedWithRecording();
-    }
-}
-
-function findRecCommand() {
-    const platform = process.platform;
-    const commonPaths = [
-        '/usr/bin/rec',
-        '/usr/local/bin/rec',
-        '/opt/homebrew/bin/rec',
-        path.join(process.env.HOME, 'bin', 'rec')
-    ];
-
-    try {
-        if (platform === 'darwin' || platform === 'linux') {
-            // First, try using 'which'
-            try {
-                const recPath = execSync('which rec').toString().trim();
-                log(`Found 'rec' command using which at: ${recPath}`);
-                return recPath;
-            } catch (whichError) {
-                log(`'which rec' failed: ${whichError.message}`, true);
-            }
-
-            // If 'which' fails, check common paths
-            for (const possiblePath of commonPaths) {
-                if (fs.existsSync(possiblePath)) {
-                    log(`Found 'rec' command at common path: ${possiblePath}`);
-                    return possiblePath;
-                }
-            }
-        } else if (platform === 'win32') {
-            // Windows logic (same as before)
-            const possiblePaths = [
-                path.join(process.env.ProgramFiles, 'Sox', 'sox.exe'),
-                path.join(process.env['ProgramFiles(x86)'], 'Sox', 'sox.exe'),
-                path.join(process.env.USERPROFILE, 'Sox', 'sox.exe')
-            ];
-            
-            for (const soxPath of possiblePaths) {
-                if (fs.existsSync(soxPath)) {
-                    log(`Found SOX on Windows at: ${soxPath}`);
-                    return soxPath;
-                }
-            }
-        }
-
-        throw new Error(`SOX not found on ${platform}`);
-    } catch (error) {
-        log(`Error finding recording command: ${error.message}`, true);
-        return null;
-    }
-}
-
-function proceedWithRecording() {
-    try {
-        log("Initializing Mic instance...");
-        const recPath = findRecCommand();
-        
-        if (!recPath) {
-            throw new Error("'rec' command not found. Please ensure SOX is installed correctly.");
-        }
-
-        micInstance = new Mic({ recordProgram: recPath });
-
-        log("Mic instance created successfully");
-
-        log("Starting recording stream...");
-        const micStream = micInstance.startRecording();
-        log("Recording stream started successfully");
-
+    if (audioRecorder.startRecording()) {
         overlayWindow.webContents.send("update-status", "recording");
         overlayWindow.showInactive();
         tray.setImage(getIconPath(true));
@@ -400,89 +275,25 @@ function proceedWithRecording() {
         isOverlayVisible = true;
         const updateInterval = setInterval(updateOverlayPosition, 16);
 
-        micStream.on("data", (data) => {
-            audioBuffer.push(data);
-        });
-
-        micStream.on("error", (error) => {
-            log(`Error in mic stream: ${error.message}`, true);
-            log(`Mic stream error stack: ${error.stack}`, true);
-            stopRecording('error');
-        });
-
-        micInstance.on("error", (error) => {
-            log(`Error during recording: ${error.message}`, true);
-            log(`Recording error stack: ${error.stack}`, true);
-            stopRecording('error');
-        });
-
-        micInstance.on("end", () => {
-            clearInterval(updateInterval);
-            log("Recording ended normally");
-        });
-        
         log("Recording started successfully");
-    } catch (error) {
-        log(`Exception in proceedWithRecording: ${error.message}`, true);
-        log(`Exception stack: ${error.stack}`, true);
-        stopRecording('error');
+    } else {
+        log("Failed to start recording", true);
+        isRecording = false;
+        overlayWindow.webContents.send("update-status", "error");
     }
 }
 
-// Add this function to check if 'rec' command is available
-function checkRecCommand() {
-    return new Promise((resolve, reject) => {
-        const child = spawn('which', ['rec']);
-        child.on('exit', (code) => {
-            if (code === 0) {
-                log("'rec' command is available");
-                resolve(true);
-            } else {
-                log("'rec' command is not available", true);
-                resolve(false);
-            }
-        });
-    });
-}
-
-async function checkAudioCommands() {
-    log(`Current PATH: ${process.env.PATH}`);
-
-    try {
-        const { stdout: soxPath } = await exec('which sox');
-        log(`sox path: ${soxPath.trim()}`);
-    } catch (error) {
-        log('sox not found in PATH', true);
-    }
-
-    try {
-        const { stdout: recPath } = await exec('which rec');
-        log(`rec path: ${recPath.trim()}`);
-    } catch (error) {
-        log('rec not found in PATH', true);
-    }
-
-    try {
-        const { stdout: soxVersion } = await exec('sox --version');
-        log(`sox version: ${soxVersion.trim()}`);
-    } catch (error) {
-        log(`Error getting sox version: ${error.message}`, true);
-    }
-}
-
-async function stopRecording(status = 'success') {
+async function stopRecording() { 
     isRecording = false;
-    if (micInstance) {
-        micInstance.stopRecording();
-    }
-    
-    log(`Stopping recording with status: ${status}`);
-    overlayWindow.webContents.send("update-status", status);
-    tray.setImage(getIconPath());
+    log("Stopping recording...");
 
-    if (status === 'success') {
+    const result = audioRecorder.stopRecording();
+    if (result && result.buffer) {
+        log(`Recording stopped. Received ${result.buffer.length} bytes of audio data.`);
+        tray.setImage(getIconPath());
+
         try {
-            const transcription = await performTranscription();
+            const transcription = await performTranscription(result.buffer);
             if (transcription) {
                 clipboard.writeText(transcription);
                 log("Transcription copied to clipboard");
@@ -494,26 +305,27 @@ async function stopRecording(status = 'success') {
             }
         } catch (error) {
             log(`Error during transcription: ${error.message}`, true);
-            status = 'error';
             overlayWindow.webContents.send("update-status", "error");
         }
+    } else {
+        log("Failed to get audio data", true);
+        overlayWindow.webContents.send("update-status", "error");
     }
 
     setTimeout(() => {
         overlayWindow.hide();
         isOverlayVisible = false;
         log("Overlay hidden");
-    }, status === 'error' ? 2000 : 700);
+    }, 700);
 }
 
-
-async function performTranscription() {
+async function performTranscription(audioBuffer) {
     if (!groq) {
         throw new Error("Groq client not initialized");
     }
 
     const audioFilePath = path.join(app.getPath("temp"), "recorded_audio.wav");
-    fs.writeFileSync(audioFilePath, Buffer.concat(audioBuffer));
+    fs.writeFileSync(audioFilePath, audioBuffer);
 
     try {
         log("Starting transcription");
@@ -535,33 +347,25 @@ async function performTranscription() {
 }
 
 function checkAccessibilityPermission() {
-    if (process.platform === "darwin") {
-        if (!systemPreferences.isTrustedAccessibilityClient(false)) {
-            log("Accessibility permission not granted", true);
-            dialog.showMessageBox({
-                type: "info",
-                title: "Accessibility Permission Required",
-                message: "This app requires accessibility permission to paste text.",
-                detail: "Please go to System Preferences > Security & Privacy > Privacy > Accessibility and add this app to the list.",
-                buttons: ["OK"],
-            });
-            return false;
-        }
-    }
-    log("Accessibility permission granted");
+    // This function might need to be implemented differently for macOS
+    // as it depends on the specific requirements of your paste add-on
     return true;
 }
 
 ipcMain.handle("get-recording-status", () => isRecording);
-ipcMain.handle("get-settings", () => ({
-    apiKey: process.env.GROQ_API_KEY || store.get("apiKey", ""),
-    hotkey: store.get("hotkey", "Control+Shift+Space"),
-}));
-ipcMain.handle("save-settings", (event, settings) => {
+ipcMain.handle("get-settings", async () => {
+    if (!store) await initializeStore();
+    return {
+        apiKey: process.env.GROQ_API_KEY || store.get("apiKey", ""),
+        hotkey: store.get("hotkey", "Control+Shift+Space"),
+    };
+});
+ipcMain.handle("save-settings", async (event, settings) => {
+    if (!store) await initializeStore();
     store.set("apiKey", settings.apiKey);
     store.set("hotkey", settings.hotkey);
-    setupGlobalHotkey();
-    setupGroqClient();
+    await setupGlobalHotkey();
+    await setupGroqClient();
     log("Settings saved");
 });
 
