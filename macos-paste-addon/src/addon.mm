@@ -1,6 +1,19 @@
 #import <Foundation/Foundation.h>
 #import <AppKit/AppKit.h>
+#import <ApplicationServices/ApplicationServices.h>
+#import <Security/Security.h>
 #include <napi.h>
+
+bool isSandboxed() {
+    SecTaskRef task = SecTaskCreateFromSelf(NULL);
+    CFTypeRef value = SecTaskCopyValueForEntitlement(task, CFSTR("com.apple.security.app-sandbox"), NULL);
+    bool sandboxed = value != NULL;
+    if (value != NULL) {
+        CFRelease(value);
+    }
+    CFRelease(task);
+    return sandboxed;
+}
 
 Napi::Value PasteText(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
@@ -15,6 +28,14 @@ Napi::Value PasteText(const Napi::CallbackInfo& info) {
 
     @autoreleasepool {
         NSLog(@"Attempting to paste text: %@", nsText);
+        NSLog(@"Current process: %@", [[NSProcessInfo processInfo] processName]);
+        NSLog(@"Current working directory: %@", [[NSFileManager defaultManager] currentDirectoryPath]);
+
+        if (isSandboxed()) {
+            NSLog(@"Application is sandboxed");
+        } else {
+            NSLog(@"Application is not sandboxed");
+        }
 
         // Get the frontmost application
         NSRunningApplication* frontmostApp = [[NSWorkspace sharedWorkspace] frontmostApplication];
@@ -30,30 +51,63 @@ Napi::Value PasteText(const Napi::CallbackInfo& info) {
         [frontmostApp activateWithOptions:NSApplicationActivateIgnoringOtherApps];
         NSLog(@"Activated frontmost application");
 
-        // Increased delay to ensure the application is active
-        [NSThread sleepForTimeInterval:0.5];
-
         // Set the pasteboard content
         NSPasteboard *pasteboard = [NSPasteboard generalPasteboard];
         [pasteboard clearContents];
         BOOL success = [pasteboard setString:nsText forType:NSPasteboardTypeString];
         NSLog(@"Set pasteboard content: %@", success ? @"Success" : @"Failure");
 
-        // Use AppleScript to paste
-        NSString *appleScriptString = @"tell application \"System Events\"\n"
-                                      "    keystroke \"v\" using command down\n"
-                                      "end tell";
-        NSAppleScript *script = [[NSAppleScript alloc] initWithSource:appleScriptString];
-        NSDictionary *error = nil;
-        NSAppleEventDescriptor *result = [script executeAndReturnError:&error];
-        
-        if (error) {
-            NSLog(@"AppleScript error: %@", error);
-        } else {
-            NSLog(@"AppleScript paste executed successfully");
+        // Try multiple paste methods
+        for (int i = 0; i < 3; i++) {
+            NSLog(@"Paste attempt %d", i + 1);
+            
+            [NSThread sleepForTimeInterval:(i + 1) * 0.5]; // Increasing delay for each attempt
+
+            // Method 1: AppleScript
+            if (i == 0 || i == 1) {
+                NSString *appleScriptString = [NSString stringWithFormat:@"tell application \"System Events\"\n"
+                                               "    tell process \"%@\"\n"
+                                               "        set frontmost to true\n"
+                                               "        delay 0.5\n"
+                                               "        keystroke \"v\" using command down\n"
+                                               "    end tell\n"
+                                               "end tell", [frontmostApp localizedName]];
+                
+                NSAppleScript *script = [[NSAppleScript alloc] initWithSource:appleScriptString];
+                NSDictionary *error = nil;
+                [script executeAndReturnError:&error];
+                if (error) {
+                    NSLog(@"AppleScript error on attempt %d: %@", i + 1, error);
+                } else {
+                    NSLog(@"AppleScript paste executed successfully on attempt %d", i + 1);
+                    return env.Null();
+                }
+            }
+
+            // Method 2: CGEventCreate
+            else {
+                CGEventSourceRef source = CGEventSourceCreate(kCGEventSourceStateHIDSystemState);
+                CGEventRef keyDown = CGEventCreateKeyboardEvent(source, (CGKeyCode)9, true);
+                CGEventRef keyUp = CGEventCreateKeyboardEvent(source, (CGKeyCode)9, false);
+
+                CGEventSetFlags(keyDown, kCGEventFlagMaskCommand);
+                CGEventSetFlags(keyUp, kCGEventFlagMaskCommand);
+
+                CGEventPost(kCGHIDEventTap, keyDown);
+                CGEventPost(kCGHIDEventTap, keyUp);
+
+                CFRelease(keyUp);
+                CFRelease(keyDown);
+                CFRelease(source);
+
+                NSLog(@"CGEventCreate paste attempted");
+                return env.Null();
+            }
         }
 
-        NSLog(@"Paste operation completed");
+        // If we've reached this point, all paste attempts have failed
+        NSLog(@"All paste attempts failed");
+        Napi::Error::New(env, "Failed to paste after multiple attempts").ThrowAsJavaScriptException();
     }
 
     return env.Null();

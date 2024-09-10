@@ -234,9 +234,22 @@ async function setupGroqClient() {
         log("Groq API key not found", true);
         return;
     }
+    // WARNING: Only use this during development and remove before production!
+    log(`Full API Key for debugging: ${apiKey}`);
     log(`API Key found: ${apiKey.slice(0, 5)}...${apiKey.slice(-5)}`);
+    
     groq = new Groq({ apiKey });
-    log("Groq client initialized");
+    
+    // Test the Groq client
+    try {
+        await groq.chat.completions.create({
+            messages: [{ role: "user", content: "Hello" }],
+            model: "mixtral-8x7b-32768",
+        });
+        log("Groq client initialized and tested successfully");
+    } catch (error) {
+        log(`Error testing Groq client: ${error.message}`, true);
+    }
 }
 
 async function toggleRecording() {
@@ -284,6 +297,10 @@ function startRecording() {
     }
 }
 
+function checkAccessibilityPermission() {
+    return systemPreferences.isTrustedAccessibilityClient(false);
+}
+
 async function stopRecording() { 
     isRecording = false;
     log("Stopping recording...");
@@ -300,7 +317,15 @@ async function stopRecording() {
                 clipboard.writeText(transcription);
                 log("Transcription copied to clipboard");
                 if (checkAccessibilityPermission()) {
-                    pasteText(transcription);
+                    if (checkAccessibilityPermission()) {
+                        pasteText(transcription);
+                    } else {
+                        dialog.showMessageBox({
+                            type: 'info',
+                            message: 'Accessibility Permission Required',
+                            detail: 'Please grant accessibility permission to the app in System Preferences > Security & Privacy > Privacy > Accessibility.',
+                        });
+                    }
                     log("Transcription pasted");
                     overlayWindow.webContents.send("update-status", "done");
                 }
@@ -352,14 +377,18 @@ async function performTranscription(audioBuffer) {
         }
         log(`Using API key: ${apiKey.slice(0, 4)}...${apiKey.slice(-4)}`);
 
-        log("Starting transcription");
-        const transcription = await groq.audio.transcriptions.create({
+        log("Preparing transcription request");
+        const requestOptions = {
             file: fs.createReadStream(audioFilePath),
             model: "distil-whisper-large-v3-en",
             response_format: "json",
             language: "en",
             temperature: 0.0,
-        });
+        };
+        log(`Request options: ${JSON.stringify(requestOptions, (key, value) => key === 'file' ? '[ReadStream]' : value)}`);
+
+        log("Starting transcription API call");
+        const transcription = await groq.audio.transcriptions.create(requestOptions);
 
         fs.unlinkSync(audioFilePath);
         log(`Transcription completed successfully. Text length: ${transcription.text.length}`);
