@@ -1,7 +1,7 @@
 {
-    "name": "voiceclipboard",
+    "name": "whisperanywhere",
     "version": "1.0.0",
-    "description": "Real-time voice recognition app using Groq Whisper API",
+    "description": "Real-time voice recognition app Whisper model can be run on any application.",
     "main": "src/main/main.js",
     "scripts": {
         "start": "electron-forge start",
@@ -23,12 +23,28 @@
         "react-dom": "^18.3.1"
     },
     "build": {
-        "appId": "com.unclecode.voiceclipboard",
+        "appId": "com.unclecode.whisperanywhere",
         "mac": {
-            "category": "public.app-category.utilities"
+            "category": "public.app-category.utilities",
+            "icon": "assets/icon.icns",
+            "target": "dmg",
+            "extendInfo": {
+                "NSMicrophoneUsageDescription": "This app requires access to your microphone to work properly.",
+                "NSAccessibility": {
+                    "enabled": true
+                }
+            },
+            "hardenedRuntime": true,
+            "gatekeeperAssess": false,
+            "entitlements": "entitlements.mac.plist",
+            "entitlementsInherit": "entitlements.mac.plist",
+            "identity": "Developer ID Application: HOSSEIN TOHIDI (TPP52TWEWR)",
+            "notarize": true,
+            "afterSign": "notarize.js"
         },
         "win": {
-            "target": "nsis"
+            "target": "nsis",
+            "icon": "assets/icon.ico"
         },
         "files": [
             "**/*",
@@ -82,6 +98,7 @@
         "babel-loader": "^9.1.3",
         "electron": "^32.0.2",
         "electron-builder": "^25.0.5",
+        "electron-notarize": "^1.2.2",
         "electron-rebuild": "^3.2.9",
         "postcss": "^8.4.45",
         "tailwindcss": "^3.4.10",

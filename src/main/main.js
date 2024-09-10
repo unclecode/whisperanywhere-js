@@ -14,31 +14,35 @@ const path = require("path");
 const Groq = require("groq-sdk");
 const fs = require("fs");
 const os = require("os");
-// const Store = require('electron-store');
 
-// Initialize store synchronously
-// const store = new Store();
-
+ 
 // Import the macOS audio recording addon
-const audioRecorder = require('../../macos-audio-addon');
+// const audioRecorder = require("../../macos-audio-addon");
+const audioAddon = require("../addons/macos_audio_addon.node");
+const audioRecorder = {
+    startRecording: audioAddon.startRecording,
+    stopRecording: audioAddon.stopRecording,
+};
 
 // Import the macOS paste addon
-const { pasteText } = require("../../macos-paste-addon");
+// const { pasteText } = require("../../macos-paste-addon");
+const addon = require("../addons/macos_paste_addon.node");
+const pasteText = addon.pasteText;
 
 // Setup logging
-const logDir = path.join(os.homedir(), '.voiceclipboard');
-const activityLogPath = path.join(logDir, 'activity.log');
-const errorLogPath = path.join(logDir, 'error.log');
+const logDir = path.join(os.homedir(), ".whisperanywhere");
+const activityLogPath = path.join(logDir, "activity.log");
+const errorLogPath = path.join(logDir, "error.log");
 
 function setupLogging() {
     if (!fs.existsSync(logDir)) {
         fs.mkdirSync(logDir);
     }
     if (!fs.existsSync(activityLogPath)) {
-        fs.writeFileSync(activityLogPath, '');
+        fs.writeFileSync(activityLogPath, "");
     }
     if (!fs.existsSync(errorLogPath)) {
-        fs.writeFileSync(errorLogPath, '');
+        fs.writeFileSync(errorLogPath, "");
     }
 }
 
@@ -56,7 +60,7 @@ let store;
 // })();
 
 async function initializeStore() {
-    const Store = await import('electron-store');
+    const Store = await import("electron-store");
     store = new Store.default();
 }
 
@@ -69,6 +73,7 @@ let isOverlayVisible = false;
 
 function createSettingsWindow() {
     settingsWindow = new BrowserWindow({
+        icon: path.join(__dirname, '../assets/icon.png'),
         width: 400,
         height: 280,
         webPreferences: {
@@ -131,7 +136,7 @@ function getIconPath(isRecording = false) {
 
 let forceQuit = false;
 
-app.on('before-quit', () => {
+app.on("before-quit", () => {
     forceQuit = true;
     log("Application is quitting");
 });
@@ -169,13 +174,13 @@ function createTray() {
             },
         },
     ]);
-    tray.setToolTip("VoiceClipboard");
+    tray.setToolTip("WhisperAnywhere");
     tray.setContextMenu(contextMenu);
     log("Tray created");
 }
 
 async function initializeStore() {
-    const Store = await import('electron-store');
+    const Store = await import("electron-store");
     store = new Store.default();
 }
 
@@ -183,7 +188,7 @@ app.whenReady().then(async () => {
     await initializeStore();
     setupLogging();
     log("Application starting");
-    
+
     createSettingsWindow();
     createOverlayWindow();
     createTray();
@@ -203,8 +208,6 @@ app.on("window-all-closed", function () {
         app.quit();
     }
 });
-
-
 
 async function setupGlobalHotkey() {
     if (!store) await initializeStore();
@@ -237,9 +240,9 @@ async function setupGroqClient() {
     // WARNING: Only use this during development and remove before production!
     log(`Full API Key for debugging: ${apiKey}`);
     log(`API Key found: ${apiKey.slice(0, 5)}...${apiKey.slice(-5)}`);
-    
+
     groq = new Groq({ apiKey });
-    
+
     // Test the Groq client
     try {
         await groq.chat.completions.create({
@@ -301,7 +304,7 @@ function checkAccessibilityPermission() {
     return systemPreferences.isTrustedAccessibilityClient(false);
 }
 
-async function stopRecording() { 
+async function stopRecording() {
     isRecording = false;
     log("Stopping recording...");
 
@@ -321,9 +324,9 @@ async function stopRecording() {
                         pasteText(transcription);
                     } else {
                         dialog.showMessageBox({
-                            type: 'info',
-                            message: 'Accessibility Permission Required',
-                            detail: 'Please grant accessibility permission to the app in System Preferences > Security & Privacy > Privacy > Accessibility.',
+                            type: "info",
+                            message: "Accessibility Permission Required",
+                            detail: "Please grant accessibility permission to the app in System Preferences > Security & Privacy > Privacy > Accessibility.",
                         });
                     }
                     log("Transcription pasted");
@@ -385,7 +388,11 @@ async function performTranscription(audioBuffer) {
             language: "en",
             temperature: 0.0,
         };
-        log(`Request options: ${JSON.stringify(requestOptions, (key, value) => key === 'file' ? '[ReadStream]' : value)}`);
+        log(
+            `Request options: ${JSON.stringify(requestOptions, (key, value) =>
+                key === "file" ? "[ReadStream]" : value
+            )}`
+        );
 
         log("Starting transcription API call");
         const transcription = await groq.audio.transcriptions.create(requestOptions);
