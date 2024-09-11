@@ -6,7 +6,7 @@
     "scripts": {
         "start": "electron-forge start",
         "package": "electron-forge package",
-        "make": "electron-forge make",
+        "make": "NODE_OPTIONS=--no-warnings npm run make -- --verbose",
         "build-react": "webpack --mode production",
         "dev": "npm run build-react && npm start"
     },
@@ -73,11 +73,13 @@
         "@electron-forge/maker-squirrel": "^7.4.0",
         "@electron-forge/maker-zip": "^7.4.0",
         "@electron-forge/plugin-auto-unpack-natives": "^7.4.0",
+        "@electron/notarize": "^2.4.0",
         "autoprefixer": "^10.4.20",
         "babel-loader": "^9.1.3",
         "electron": "^32.0.2",
         "electron-builder": "^25.0.5",
         "electron-notarize": "^1.2.2",
+        "electron-osx-sign": "^0.6.0",
         "electron-rebuild": "^3.2.9",
         "postcss": "^8.4.45",
         "tailwindcss": "^3.4.10",

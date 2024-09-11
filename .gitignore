@@ -130,3 +130,5 @@ dist
 .pnp.*
 
 notes.md
+tmp/
+.vscode/

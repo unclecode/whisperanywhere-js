@@ -11,10 +11,12 @@ module.exports = {
       'entitlements-inherit': 'entitlements.mac.plist',
       'signature-flags': 'library'
     },
-    osxNotarize: {
-      appleId: process.env.APPLE_ID,
-      appleIdPassword: process.env.APPLE_ID_PASSWORD,
-    },
+    // osxNotarize: {
+    //   tool: 'notarytool',
+    //   appleId: process.env.APPLE_ID,
+    //   appleIdPassword: process.env.APPLE_ID_PASSWORD,
+    //   teamId: 'TPP52TWEWR'
+    // },
   },
   rebuildConfig: {},
   makers: [

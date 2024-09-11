@@ -75,7 +75,7 @@ function createSettingsWindow() {
     settingsWindow = new BrowserWindow({
         icon: path.join(__dirname, '../assets/icon.png'),
         width: 400,
-        height: 280,
+        height: 300,
         webPreferences: {
             nodeIntegration: false,
             contextIsolation: true,

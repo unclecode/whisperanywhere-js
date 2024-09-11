@@ -1,1 +1,0 @@
-cmd_Release/macos_audio_addon.node := c++ -bundle -undefined dynamic_lookup -Wl,-search_paths_first -mmacosx-version-min=10.15 -arch arm64 -L./Release -stdlib=libc++  -o Release/macos_audio_addon.node Release/obj.target/macos_audio_addon/src/addon.o Release/nothing.a -framework AVFoundation -framework CoreAudio -framework AudioToolbox
