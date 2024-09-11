@@ -17,9 +17,11 @@ WhisperAnywhere is a powerful, system-wide speech-to-text tool that lets you dic
 
 ### Option 1: Pre-compiled Version (macOS)
 
-1. Download the pre-compiled WhisperAnywhere app from the root of this repository.
-2. Drag the WhisperAnywhere app to your Applications folder.
-3. Double-click to open the app.
+1. Download the pre-compiled WhisperAnywhere app from the releases page [Whisper.Anywhere-darwin-arm64-1.0.0.zip
+](https://github.com/unclecode/whisperanywhere/releases/download/v1.0.0-pre/Whisper.Anywhere-darwin-arm64-1.0.0.zip).
+2. Unzip the downloaded file.
+3. Drag the WhisperAnywhere app to your Applications folder.
+4. Double-click to open the app.
 
 ### Option 2: Build from Source
 
