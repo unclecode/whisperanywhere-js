@@ -65,6 +65,12 @@ When you first run WhisperAnywhere, it will prompt you to grant these permission
 - Custom fine-tuning options for improved accuracy
 - Windows support
 
+## Troubleshooting
+
+1. Open the WhisperAnywhere app. It will appear in your menu bar.
+2. Select "Open Activity Log", or "Open Error Log" to view any errors or issues that may have occurred.
+3. If you encounter any issues, please [open an issue](https://github.com/unclecode/whisperanywhere/issues/new) on our GitHub repository.
+
 ## Building from Source
 
 If you'd like to compile WhisperAnywhere yourself:
@@ -92,7 +98,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
 
-[MIT License](LICENSE)
+[Apache License 2.0](LICENSE)
 
 ## Support
 
